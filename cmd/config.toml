@@ -1,0 +1,15 @@
+[cache]
+Host = "localhost"
+Port = "6379"
+UserName = ""
+Password = ""
+
+[database]
+Host = "localhost"
+Port = "3306"
+UserName = "root"
+Password = "example"
+
+[http]
+Host = "0.0.0.0"
+Port = "8090"
