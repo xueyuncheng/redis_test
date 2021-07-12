@@ -1,6 +1,8 @@
 package service
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"redis_test/internal/log"
 	"redis_test/model"
@@ -8,83 +10,63 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 )
 
-func AddUser(ctx *gin.Context, req *model.AddUserReq) error {
-	user := &model.User{
-		Name: req.Name,
-		Age:  req.Age,
-	}
-
-	if err := srv.Db.Create(user).Error; err != nil {
-		log.Sugar.Error("创建人员错误", zap.Error(err))
-		return fmt.Errorf("创建人员错误 %w", err)
-	}
-
-	key := fmt.Sprintf("user:" + strconv.Itoa(int(user.ID)))
-	if err := srv.Rdb.HMSet(ctx, key, "name", user.Name, "age", user.Age).Err(); err != nil {
-		log.Sugar.Error("hset 人员信息错误", zap.Error(err))
-		return fmt.Errorf("hset 人员信息错误 %w", err)
-	}
-
-	if err := srv.Rdb.Expire(ctx, key, 10*time.Second).Err(); err != nil {
-		log.Sugar.Error("expire 设置key的过期时间错误", zap.Error(err))
-		return fmt.Errorf("expire 设置key的过期时间错误 %w", err)
-	}
-
-	if err := srv.Rdb.LPush(ctx, "user", user.ID).Err(); err != nil {
-		log.Sugar.Error("lpush 人员信息错误", zap.Error(err))
-		return fmt.Errorf("lpush 人员信息错误 %w", err)
-	}
-
-	if err := srv.Rdb.Expire(ctx, "user", 10*time.Second).Err(); err != nil {
-		log.Sugar.Error("设置user列表超时时间错误", zap.Error(err))
-		return fmt.Errorf("设置user列表超时时间错误 %w", err)
-	}
-
-	return nil
-}
-
-func ListUser(ctx *gin.Context, req *model.ListUserReq) ([]*model.ListUserResp, error) {
-	ids := make([]int, 0, 16)
-	if err := srv.Rdb.LRange(ctx, "user", int64(req.Offset()), int64(req.PageSize)).ScanSlice(&ids); err != nil {
-		log.Sugar.Error("获取用户列表错误", zap.Error(err))
-		return nil, fmt.Errorf("获取用户列表错误 %w", err)
-	}
-
+func ListUser(ctx *gin.Context, req *model.User) ([]*model.User, error) {
 	users := make([]*model.User, 0, 128)
-	for _, v := range ids {
-		tmp := &model.User{}
-		if err := srv.Rdb.HGetAll(ctx, "user:"+strconv.Itoa(v)).Scan(&tmp); err != nil {
-			log.Sugar.Error("获取人员信息错误", zap.Error(err))
-			return nil, fmt.Errorf("获取人员信息错误 %w", err)
-		}
-
-		users = append(users, tmp)
+	if err := srv.Db.Model(&model.User{}).Where("name like ?", "%"+req.Name+"%").Offset(req.Offset()).Limit(req.PageSize).
+		Find(&users).Error; err != nil {
+		log.Sugar.Error("获取用户错误", zap.Error(err))
+		return nil, fmt.Errorf("获取用户错误 %w", err)
 	}
 
-	respUsers := make([]*model.ListUserResp, 0, 16)
-	for _, v := range users {
-		tmp := &model.ListUserResp{
-			ID:   int(v.ID),
-			Name: v.Name,
-			Age:  v.Age,
-		}
-
-		respUsers = append(respUsers, tmp)
-	}
-
-	return respUsers, nil
+	return users, nil
 }
 
-func ListUserCount(ctx *gin.Context, req *model.ListUserReq) (int, error) {
-	length, err := srv.Rdb.LLen(ctx, "user").Result()
-	if err != nil {
-		log.Sugar.Error("获取user列表长度错误", zap.Error(err))
-		return 0, fmt.Errorf("获取user列表长度错误 %w", err)
+func ListUserCount(ctx *gin.Context, req *model.User) (int, error) {
+	var count int64
+	if err := srv.Db.Model(&model.User{}).Where("name like ?", req.Name).Count(&count).Error; err != nil {
+		log.Sugar.Error("获取用户计数错误", zap.Error(err))
+		return 0, fmt.Errorf("获取用户计数错误 %w", err)
 	}
 
-	return int(length), nil
+	return int(count), nil
+}
 
+func GetUser(ctx *gin.Context, id int) (*model.User, error) {
+	user := &model.User{}
+	bs, err := srv.Rdb.Get(ctx, "user:id:"+strconv.Itoa(id)).Bytes()
+	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			log.Sugar.Error("获取用户信息错误", zap.Error(err))
+			return nil, fmt.Errorf("获取用户信息错误 %w", err)
+		}
+
+		if err := srv.Db.Where("id = ?", id).First(&user).Error; err != nil {
+			log.Sugar.Error("获取用户信息错误", zap.Error(err))
+			return nil, fmt.Errorf("获取用户信息错误 %w", err)
+		}
+
+		v, err := json.Marshal(user)
+		if err != nil {
+			log.Sugar.Error("序列化错误", zap.Error(err))
+			return nil, fmt.Errorf("序列化错误 %w", err)
+		}
+
+		if err := srv.Rdb.Set(ctx, "user:id:"+strconv.Itoa(id), v, 10*time.Hour).Err(); err != nil {
+			log.Sugar.Error("缓存set错误", zap.Error(err))
+			return nil, fmt.Errorf("缓存set错误 %w", err)
+		}
+
+		return user, nil
+	}
+
+	if err := json.Unmarshal(bs, user); err != nil {
+		log.Sugar.Error("反序列化错误", zap.Error(err))
+		return nil, fmt.Errorf("反序列化错误 %w", err)
+	}
+
+	return user, nil
 }

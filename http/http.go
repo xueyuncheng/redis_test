@@ -2,6 +2,7 @@ package http
 
 import (
 	"net"
+	"net/http"
 	"redis_test/config"
 	"redis_test/service"
 
@@ -22,11 +23,12 @@ func initRouter(r *gin.Engine) {
 	users := api.Group("/users")
 	{
 		users.GET("", wrap(ListUser))
+		users.GET("/:id", wrap(GetUser))
 	}
 }
 
 func wrap(f func(ctx *gin.Context) interface{}) func(ctx *gin.Context) {
 	return func(ctx *gin.Context) {
-		f(ctx)
+		ctx.JSON(http.StatusOK, f(ctx))
 	}
 }
