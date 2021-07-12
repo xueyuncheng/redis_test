@@ -10,7 +10,7 @@ import (
 var Sugar *zap.SugaredLogger
 
 func InitLog() {
-	logger, err := zap.NewProduction()
+	logger, err := zap.NewDevelopment()
 	if err != nil {
 		fmt.Println("日志模块启动错误", err)
 		os.Exit(1)

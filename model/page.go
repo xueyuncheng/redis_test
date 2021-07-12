@@ -1,8 +1,8 @@
 package model
 
 type Page struct {
-	PageNo   int `form:"page_no" json:"page_no"`
-	PageSize int `form:"page_size" json:"page_size"`
+	PageNo   int `form:"page_no" json:"-" gorm:"column:-"`
+	PageSize int `form:"page_size" json:"-" gorm:"column:-"`
 }
 
 func (p *Page) Offset() int {

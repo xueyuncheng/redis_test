@@ -1,27 +1,10 @@
 package model
 
-import "gorm.io/gorm"
-
-type AddUserReq struct {
-	Name string
-	Age  int
-}
-
-type ListUserReq struct {
-	Page
-	Name string
-}
-
-type ListUserResp struct {
-	ID   int
-	Name string
-	Age  int
-}
-
 type User struct {
-	gorm.Model
-	Name string
-	Age  int
+	Page
+	Model
+	Name string `json:"name"`
+	Age  int    `json:"age"`
 }
 
 func (u *User) TableName() string {
